@@ -54,9 +54,13 @@ mAP@20/MRR@20 at a small R-precision cost.
 ## Repository Structure
 
 ```
-src/           Pipeline (config, dataset, features, textmap, imagemap, balance, retrieval, metrics)
+src/           Pipeline (config, catalog, dataset, features, prompts, balance,
+               textmap, imagemap, retrieval, metrics, pipeline, evaluate, infer)
 src/train.py   Optional training: prompt-initialised probe (default) or LoRA fine-tune
-scripts/       Submission checker and a random-baseline format smoke test
+scripts/       make_submission (validate+submit in one process), tune_fusion,
+               check_submission, random_baseline
+notebooks/     kaggle_solution.ipynb - the whole recipe on Kaggle GPUs
+results/       Validation metrics, fusion searches and the submissions we produced
 ```
 
 ## Results (validation split, 1,010 images / 202 queries)
@@ -108,16 +112,19 @@ python3 scripts/random_baseline.py --out random_submission.csv
 python3 scripts/check_submission.py random_submission.csv --data-dir match-the-dish-to-its-rizz
 
 # 2. validate the real pipeline on the validation split
-python3 src/evaluate.py --backbone siglip2-so400m-384
+python3 src/evaluate.py --backbone siglip2-b16-384
 
 # 3. optional: train the probe heads, then use them
-python3 src/train.py --mode probe --backbone siglip2-so400m-384 --folds 5 --epochs 20
-python3 src/evaluate.py --backbone siglip2-so400m-384 --head models/probe/probe_fold*.npz
+python3 src/train.py --mode probe --backbone siglip2-b16-384 --folds 5 --epochs 25
+python3 src/evaluate.py --backbone siglip2-b16-384 --head models/probe/probe_fold*.npz
 
-# 4. write the test submission with whatever validated best
-python3 src/infer.py --backbone siglip2-so400m-384 --head models/probe/probe_fold*.npz \
-    --out submission.csv
+# 4. validate and submit in one process (loads the backbone once)
+python3 scripts/make_submission.py --backbone siglip2-so400m-384 \
+    --weight-linear 0.2 --prop-alpha 0.3 --use-validation-labels --out submission.csv
 python3 scripts/check_submission.py submission.csv --data-dir match-the-dish-to-its-rizz
+
+# 5. re-tune the fusion for a new backbone (seconds, embeddings are cached)
+python3 scripts/tune_fusion.py --backbone siglip2-so400m-384
 ```
 
 Embeddings are cached in `features/`, so re-running with different fusion weights costs seconds.
