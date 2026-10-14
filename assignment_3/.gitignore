@@ -4,6 +4,8 @@ __pycache__/
 *.pyo
 *.egg-info/
 .ipynb_checkpoints/
+features/
 models/
 submission.csv
+random_submission.csv
 match-the-dish-to-its-rizz/
