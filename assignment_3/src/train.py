@@ -291,11 +291,22 @@ def train_probe(args) -> dict:
 # --------------------------------------------------------------------------- #
 # mode 2: LoRA fine-tuning of the vision tower against frozen text prototypes
 # --------------------------------------------------------------------------- #
-LORA_TARGETS = {"c_fc", "c_proj", "fc1", "fc2", "proj", "out_proj", "linear", "dense"}
+# ``out_proj`` is deliberately absent: nn.MultiheadAttention reaches into
+# ``self.out_proj.weight`` on its fast path, so it cannot be wrapped.
+LORA_TARGETS = {"c_fc", "c_proj", "fc1", "fc2", "proj", "linear", "dense"}
 
 
 class LoRALinear(nn.Module):
     """``y = W x + b + (alpha / r) * B A x`` with the pretrained ``W`` frozen."""
+
+    @property
+    def weight(self):
+        """Delegate to the frozen base layer (MultiheadAttention reads this)."""
+        return self.base.weight
+
+    @property
+    def bias(self):
+        return self.base.bias
 
     def __init__(self, base: nn.Linear, rank: int, alpha: float, dropout: float = 0.0):
         super().__init__()
