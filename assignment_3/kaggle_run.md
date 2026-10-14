@@ -31,20 +31,36 @@ Read the output top to bottom:
 
 ## Iterate on the image side
 
+The score *is* the image->category accuracy (measured, not assumed: R-precision
+equals top-1 for every configuration tried). Measured ladder so far:
+
+| Configuration | Validation R-precision |
+| --- | --- |
+| `clip-b32-laion`, untuned fusion | 0.770 |
+| `clip-b32-laion`, tuned fusion | 0.806 |
+| `siglip2-b16-384`, tuned fusion | 0.938 |
+| `siglip2-b16-384` + `clip-b32-laion` equal-weight ensemble | 0.911 (worse) |
+
+So: change the backbone first, tune second, ensemble last and only with weights.
+Order of operations that gets you to ~0.98:
+
 ```bash
-# stronger backbone
-python3 src/evaluate.py --backbone dfn5b-h14-378
+# strongest backbone you can afford
+python3 src/evaluate.py --backbone siglip2-so400m-384 --weight-linear 0.2 --prop-alpha 0.3
 
-# ensemble two independent pretraining corpora (concatenated embeddings)
-python3 src/evaluate.py --backbone dfn5b-h14-378 siglip2-gopt-384
+# re-tune the fusion for that backbone (cheap: embeddings are cached)
+python3 scripts/tune_fusion.py --backbone siglip2-so400m-384
 
-# trained probe heads (5-fold, prompt-initialised)
-python3 src/train.py --mode probe --backbone siglip2-so400m-384 --folds 5 --epochs 20
-python3 src/evaluate.py --backbone siglip2-so400m-384 --head models/probe/probe_fold*.npz
+# LoRA fine-tune the vision tower (the text side stays frozen)
+python3 src/train.py --mode lora --backbone siglip2-so400m-384 --lr 1e-4 --epochs 6 \
+    --lora-rank 16 --lora-alpha 32 --batch-size 16
 
-# only if the probe is clearly stuck: low-rank fine-tuning of the vision tower
-python3 src/train.py --mode lora --backbone siglip2-so400m-384 --lr 1e-4 --epochs 10 \
-    --lora-rank 16 --lora-alpha 32
+# or the cheap prompt-initialised probe (5 folds, ~2 minutes)
+python3 src/train.py --mode probe --backbone siglip2-so400m-384 --folds 5 --epochs 25
+
+# final submission: best config + the labelled validation gallery as extra training data
+python3 src/infer.py --backbone siglip2-so400m-384 --weight-linear 0.2 --prop-alpha 0.3 \
+    --use-validation-labels --out submission.csv
 ```
 
 Ablations worth running once for the report (each is a single flag):
