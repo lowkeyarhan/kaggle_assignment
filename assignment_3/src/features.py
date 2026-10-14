@@ -8,6 +8,7 @@ then costs seconds instead of a full GPU pass.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -114,7 +115,7 @@ def encode_images(
     num_workers: int = 8,
     device: torch.device | None = None,
     use_cache: bool = True,
-    progress: bool = True,
+    progress: bool | None = None,
     precision: str = "auto",
 ) -> tuple[np.ndarray, dict]:
     """Encode images into L2-normalised float32 features, averaged over views.
@@ -123,6 +124,7 @@ def encode_images(
     averaged *after* normalisation, which keeps each view's vote comparable.
     """
     device = device or pick_device()
+    progress = sys.stdout.isatty() if progress is None else progress
     view_tag = "-".join(sorted(views))
     tag = config.cache_key("img", backbone, view_tag, precision, _ids_fingerprint(image_ids))
     if use_cache:
