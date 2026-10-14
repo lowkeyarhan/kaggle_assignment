@@ -48,8 +48,10 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--sinkhorn-temp", type=float, default=0.35)
     p.add_argument("--weight-zero-shot", type=float, default=0.30)
     p.add_argument("--weight-linear", type=float, default=0.40)
-    p.add_argument("--weight-knn", type=float, default=0.20)
-    p.add_argument("--prop-alpha", type=float, default=0.5)
+    p.add_argument("--weight-knn", type=float, default=0.0,
+                   help="weight of the k-NN vote (validation search says 0.0)")
+    p.add_argument("--prop-alpha", type=float, default=0.0,
+                   help="gallery label-propagation strength (validation search says 0.0)")
     p.add_argument("--prop-k", type=int, default=15)
     p.add_argument("--head", nargs="*", default=None,
                    help="probe heads from train.py --mode probe (glob the fold files); "
@@ -62,6 +64,9 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--precision", choices=["auto", "fp16", "bf16", "fp32"], default="auto",
                    help="autocast dtype for encoding (auto: fp16 CUDA, bf16 Apple silicon)")
     p.add_argument("--no-cache", action="store_true")
+    p.add_argument("--use-validation-labels", action="store_true",
+                   help="also train the image-side head on the labelled validation gallery "
+                        "(only sensible for the test submission)")
     p.add_argument("--dump-queries", default=None, help="optional csv of the query->category decisions")
     p.add_argument("--json", action="store_true", help="print metrics as json")
 
@@ -95,6 +100,7 @@ def build_config(args) -> pipeline.PipelineConfig:
         device=args.device,
         precision=args.precision,
         use_cache=not args.no_cache,
+        add_validation_labels=args.use_validation_labels,
         image_cfg=image_cfg,
     )
 

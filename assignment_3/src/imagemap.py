@@ -35,12 +35,12 @@ class ImageMapConfig:
 
     weight_zero_shot: float = 0.30
     weight_linear: float = 0.40
-    weight_knn: float = 0.20
+    weight_knn: float = 0.0  # tuned on validation: k-NN votes are noisier than they help
     knn_k: int = 25
     knn_temp: float = 0.05
     logreg_C: float = 10.0
     prop_k: int = 15
-    prop_alpha: float = 0.5
+    prop_alpha: float = 0.0  # tuned on validation: propagation smears the confusable clusters
     prop_iters: int = 1
     prop_temp: float = 0.07
     balance: str = "sinkhorn"  # "sinkhorn" | "none"
@@ -65,15 +65,15 @@ def head_scores(
     dimension check below fires.
     """
     blob = np.load(path, allow_pickle=False)
-    weight = blob["weight"]
+    weight = blob["weight"]  # [K, D], one prompt-initialised row per category
     bias = blob["bias"] if "bias" in blob.files else np.zeros(weight.shape[0])
-    if weight.shape[0] != feats.shape[1]:
+    if weight.shape[1] != feats.shape[1]:
         raise ValueError(
-            f"{path} expects {weight.shape[0]}-d features but the gallery has "
+            f"{path} expects {weight.shape[1]}-d features but the gallery has "
             f"{feats.shape[1]} - train the probe with the same backbone used here"
         )
-    if weight.shape[0] and weight.shape[1] != n_classes:
-        raise ValueError(f"{path} has {weight.shape[1]} classes, expected {n_classes}")
+    if weight.shape[0] != n_classes:
+        raise ValueError(f"{path} has {weight.shape[0]} classes, expected {n_classes}")
     step = float(blob["scale"]) if "scale" in blob.files else float(scale or 100.0)
     x = feats / np.clip(np.linalg.norm(feats, axis=1, keepdims=True), 1e-8, None)
     w = weight / np.clip(np.linalg.norm(weight, axis=1, keepdims=True), 1e-8, None)
