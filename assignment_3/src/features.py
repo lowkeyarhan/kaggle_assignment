@@ -58,18 +58,26 @@ def autocast_ctx(device: torch.device, precision: str = "auto"):
     return torch.autocast(device.type, dtype=dtype)
 
 
-def load_model(backbone: str, device: torch.device | None = None):
-    """Load ``(model, preprocess, tokenizer)`` for a backbone registry key."""
+def load_model(backbone: str, device: torch.device | None = None, precision: str = "auto"):
+    """Load ``(model, preprocess, tokenizer)`` for a backbone registry key.
+
+    The model is built on the CPU and cast to the autocast dtype *before* it
+    moves to the GPU: shipping fp32 weights to the device doubles the transfer
+    (4.5 GB for SO400M) and the transfer is a real cost, not a rounding error.
+    """
     import open_clip  # imported lazily so --help works without the dep installed
 
     device = device or pick_device()
     arch, pretrained = config.backbone_spec(backbone)
-    key = (arch, pretrained)
+    dtype = autocast_dtype(device, precision)
+    key = (arch, pretrained, str(dtype))
     if key not in _MODEL_CACHE:
         model, _, preprocess = open_clip.create_model_and_transforms(
-            arch, pretrained=pretrained, device=device
+            arch, pretrained=pretrained, device="cpu"
         )
-        model.eval()
+        if dtype is not None:
+            model = model.to(dtype=dtype)
+        model = model.eval().to(device)
         tokenizer = open_clip.get_tokenizer(arch)
         _MODEL_CACHE[key] = (model, preprocess, tokenizer)
     return _MODEL_CACHE[key]
@@ -102,7 +110,56 @@ def _load(tag: str, ids: list[str]):
     cached_ids = list(blob["ids"])
     if cached_ids != ids:
         return None  # different gallery: never reuse a stale cache
+    feats = blob["feats"]
+    if not np.isfinite(feats).all():
+        # A cache written by an older, unguarded run can hold NaNs/inf; treat it
+        # as a miss rather than poisoning everything downstream.
+        return None
     return {k: blob[k] for k in blob.files if k != "ids"}, cached_ids
+
+
+def _encode_paths(
+    model,
+    view_transforms: dict,
+    paths: list[str],
+    device: torch.device,
+    batch_size: int,
+    num_workers: int,
+    dtype,
+    progress: bool,
+    tag: str,
+) -> np.ndarray:
+    """Encode ``paths`` with every view and return the averaged, normalised matrix."""
+    per_view = []
+    for view, tf in view_transforms.items():
+        loader = DataLoader(
+            ds.ImagePathDataset(paths, tf),
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=device.type == "cuda",
+        )
+        iterator = loader
+        if progress:
+            from tqdm import tqdm
+
+            iterator = tqdm(loader, desc=f"{tag}:{view}", leave=False)
+        chunks = []
+        for pixels, _ in iterator:
+            pixels = pixels.to(device, non_blocking=True)
+            with torch.autocast(device.type, dtype=dtype) if dtype else _nullcontext():
+                feats = model.encode_image(pixels)
+            chunks.append(ds.l2_normalize(feats.float()).cpu().numpy())
+        per_view.append(np.concatenate(chunks, axis=0))
+    return per_view
+
+
+class _nullcontext:
+    def __enter__(self):
+        return None
+
+    def __exit__(self, *exc):
+        return False
 
 
 @torch.no_grad()
@@ -132,36 +189,53 @@ def encode_images(
         if cached is not None:
             return cached[0]["feats"], {"cached": True, "backbone": backbone, "views": list(views)}
 
-    model, preprocess, _ = load_model(backbone, device)
+    model, preprocess, _ = load_model(backbone, device, precision)
     size = ds.infer_image_size(model, preprocess)
     mean, std = ds.extract_norm(preprocess)
     view_transforms = ds.build_eval_views(size, mean, std, views)
 
-    per_view = []
-    for view, tf in view_transforms.items():
-        loader = DataLoader(
-            ds.ImagePathDataset(paths, tf),
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-            pin_memory=device.type == "cuda",
-        )
-        chunks = []
-        iterator = loader
-        if progress:
-            from tqdm import tqdm
-
-            iterator = tqdm(loader, desc=f"{backbone}:{view}", leave=False)
-        for pixels, _ in iterator:
-            pixels = pixels.to(device, non_blocking=True)
-            with autocast_ctx(device, precision):
-                feats = model.encode_image(pixels)
-            feats = feats.float()
-            chunks.append(ds.l2_normalize(feats).cpu().numpy())
-        per_view.append(np.concatenate(chunks, axis=0))
+    per_view = _encode_paths(
+        model,
+        view_transforms,
+        paths,
+        device,
+        batch_size,
+        num_workers,
+        autocast_dtype(device, precision),
+        progress,
+        f"{backbone}",
+    )
 
     stacked = np.stack(per_view, axis=0)  # [V, N, D]
     feats = stacked.mean(axis=0)
+
+    # Low-precision autocast can overflow on a handful of images. Re-encode those
+    # in fp32 rather than letting one NaN poison the whole similarity matrix.
+    bad = ~np.isfinite(feats).all(axis=1)
+    if bad.any():
+        bad_idx = np.flatnonzero(bad)
+        print(
+            f"[features] {len(bad_idx)} non-finite embeddings for {backbone}; "
+            "retrying those images in fp32"
+        )
+        retry = _encode_paths(
+            model,
+            view_transforms,
+            [paths[i] for i in bad_idx],
+            device,
+            batch_size,
+            num_workers,
+            None,  # fp32
+            progress,
+            f"{backbone}-fp32-retry",
+        )
+        fixed = np.stack(retry, axis=0).mean(axis=0)
+        still_bad = ~np.isfinite(fixed).all(axis=1)
+        if still_bad.any():
+            print(f"[features] {int(still_bad.sum())} images stay unusable; zeroing them")
+            fixed[still_bad] = 0.0
+        feats[bad_idx] = fixed
+
     feats /= np.clip(np.linalg.norm(feats, axis=1, keepdims=True), 1e-8, None)
     feats = feats.astype(np.float32)
 
@@ -171,6 +245,7 @@ def encode_images(
         "views": list(views),
         "image_size": size,
         "precision": precision,
+        "zero_rows": int((np.linalg.norm(feats, axis=1) <= 1e-8).sum()),
         "dim": int(feats.shape[1]),
     }
     if use_cache:
@@ -195,7 +270,7 @@ def encode_texts(
         if cached is not None:
             return cached[0]["feats"]
 
-    model, _, tokenizer = load_model(backbone, device)
+    model, _, tokenizer = load_model(backbone, device, precision)
     chunks = []
     for start in range(0, len(texts), batch_size):
         tokens = tokenizer(texts[start : start + batch_size]).to(device)
