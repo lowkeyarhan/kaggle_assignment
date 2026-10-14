@@ -38,6 +38,7 @@ class PipelineConfig:
     device: str | None = None
     precision: str = "auto"  # "auto" = fp16 on CUDA, bf16 on Apple silicon, fp32 on CPU
     use_cache: bool = True
+    add_validation_labels: bool = False  # train also on the labelled validation gallery
     image_cfg: imagemap.ImageMapConfig = field(default_factory=imagemap.ImageMapConfig)
 
 
@@ -131,6 +132,30 @@ def query_label_accuracy(assignments: pd.DataFrame, ground_truth: pd.DataFrame) 
     return float(len(hits)) / max(len(assignments), 1)
 
 
+def _with_validation_labels(
+    cfg: PipelineConfig,
+    root,
+    cats: pd.DataFrame,
+    train_emb: np.ndarray,
+    train_labels: np.ndarray,
+):
+    """Append the labelled validation gallery to the image-side training set."""
+    val_images = catalog.load_images(root, "validation")
+    val_queries = catalog.load_queries(root, "validation")
+    val_emb, _, _, _, _ = _encode_roles(cfg, cats, val_images, val_queries, val_images)
+    labels = catalog.validation_image_labels(
+        val_images, catalog.load_ground_truth(root), cats
+    )
+    keep = labels >= 0
+    print(
+        f"[pipeline] adding {int(keep.sum())} labelled validation images to the "
+        f"image-side training set ({len(train_labels)} -> {len(train_labels) + int(keep.sum())})"
+    )
+    return np.concatenate([train_emb, val_emb[keep]], axis=0), np.concatenate(
+        [train_labels, labels[keep]], axis=0
+    )
+
+
 def run_pipeline(
     data_dir: str | None = None,
     split: str = "validation",
@@ -167,6 +192,14 @@ def run_pipeline(
 
     # --- image side: which dish is each gallery image? ---
     train_labels = imagemap.labels_from_frame(train, cats["category_id"].tolist())
+
+    # The validation gallery ships with answers, so for the final submission it
+    # is legitimate (and valuable) extra supervision: +50% labelled images.
+    if cfg.add_validation_labels and split != "train":
+        train_emb, train_labels = _with_validation_labels(
+            cfg, root, cats, train_emb, train_labels
+        )
+
     image_scores = imagemap.score_images(
         gallery_emb, proto, train_emb, train_labels, cfg.image_cfg
     )
