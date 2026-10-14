@@ -33,6 +33,8 @@ BACKBONES = {
     "clip-b32-laion": ("ViT-B-32", "laion2b_s34b_b79k"),
     # strong, cheap, 384px input: the workhorse default
     "siglip2-so400m-384": ("ViT-SO400M-16-SigLIP2-384", "webli"),
+    # mid tier: most of the SigLIP2 quality at ~1/5 of the compute (laptop friendly)
+    "siglip2-b16-384": ("ViT-B-16-SigLIP2-384", "webli"),
     # strongest ImageNet zero-shot of the SigLIP2 family
     "siglip2-gopt-384": ("ViT-gopt-16-SigLIP2-384", "webli"),
     # DFN-5B CLIP ViT-H/14 @378
