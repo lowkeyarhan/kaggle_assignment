@@ -9,3 +9,4 @@ models/
 submission.csv
 random_submission.csv
 match-the-dish-to-its-rizz/
+results/*.log
