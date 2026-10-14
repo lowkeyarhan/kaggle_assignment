@@ -108,7 +108,11 @@ def _encode_roles(
         query_parts.append(qemb)
         proto_parts.append(proto)
         text_parts.append(text_matrix)
-        features.free_backbone()
+        if len(cfg.backbones) > 1:
+            # Free the model between backbones (moving 4+ GB to the GPU/MPS costs
+            # minutes); with a single backbone keep it, because a second call in
+            # the same process would otherwise pay that cost again.
+            features.free_backbone()
 
     return (
         _fuse(gallery_parts, weights),
