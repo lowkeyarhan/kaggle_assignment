@@ -97,7 +97,10 @@ def category_text_matrix(
         description = str(row.description).strip().rstrip(".")
         texts: list[str] = []
         for form in forms:
-            texts += [tpl.format(name=form) for tpl in config.QUERY_CATEGORY_TEMPLATES]
+            texts += [
+                tpl.format(name=form, description=description)
+                for tpl in config.QUERY_CATEGORY_TEMPLATES
+            ]
         if description:
             texts.append(f"{forms[0]}, {description}")
         texts += list(row.paraphrases)  # competition-provided paraphrases of the label
