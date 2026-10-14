@@ -1,5 +1,8 @@
 """Reject malformed submissions before upload."""
-import argparse, sys
+
+import argparse
+import sys
+
 import pandas as pd
 
 
