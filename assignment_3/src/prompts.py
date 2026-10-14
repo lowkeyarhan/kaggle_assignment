@@ -42,7 +42,9 @@ def category_prototype_texts(cats: pd.DataFrame, max_surface_forms: int = MAX_SU
     return prototypes
 
 
-def category_prototype_matrix(backbone: str, cats: pd.DataFrame, device=None, use_cache: bool = True):
+def category_prototype_matrix(
+    backbone: str, cats: pd.DataFrame, device=None, use_cache: bool = True, precision: str = "auto"
+):
     """Embed the prompt ensemble and average it into one prototype per category.
 
     Returns ``(matrix [K, D] L2-normalised, n_prompts_per_category [K])``.
@@ -57,7 +59,7 @@ def category_prototype_matrix(backbone: str, cats: pd.DataFrame, device=None, us
 
     prototypes = category_prototype_texts(cats)
     flat = [text for group in prototypes for text in group]
-    embedded = encode_texts(backbone, flat, device=device, use_cache=use_cache)
+    embedded = encode_texts(backbone, flat, device=device, use_cache=use_cache, precision=precision)
     counts = np.array([len(group) for group in prototypes], dtype=np.int64)
     matrix = np.zeros((len(prototypes), embedded.shape[1]), dtype=np.float64)
     offset = 0
@@ -74,7 +76,9 @@ def query_texts(queries: pd.DataFrame) -> list[str]:
     return [str(d).strip() for d in queries["description"]]
 
 
-def category_text_matrix(backbone: str, cats: pd.DataFrame, device=None, use_cache: bool = True):
+def category_text_matrix(
+    backbone: str, cats: pd.DataFrame, device=None, use_cache: bool = True, precision: str = "auto"
+):
     """Embed a compact "category identity" matrix used by the text-side mapper.
 
     The query mapper must judge "which category does this sentence talk about",
@@ -100,7 +104,7 @@ def category_text_matrix(backbone: str, cats: pd.DataFrame, device=None, use_cac
         groups.append(texts)
 
     flat = [t for g in groups for t in g]
-    embedded = encode_texts(backbone, flat, device=device, use_cache=use_cache)
+    embedded = encode_texts(backbone, flat, device=device, use_cache=use_cache, precision=precision)
     counts = np.array([len(g) for g in groups], dtype=np.int64)
     matrix = np.zeros((len(groups), embedded.shape[1]), dtype=np.float64)
     offset = 0

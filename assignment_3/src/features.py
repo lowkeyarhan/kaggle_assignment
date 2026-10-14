@@ -30,11 +30,31 @@ def pick_device(prefer: str | None = None) -> torch.device:
     return torch.device("cpu")
 
 
-def autocast_ctx(device: torch.device):
-    """fp16 autocast on CUDA, no-op elsewhere (fp16 is unsupported on MPS)."""
+def autocast_dtype(device: torch.device, precision: str = "auto"):
+    """Pick an autocast dtype.
+
+    ``auto`` uses fp16 on CUDA and bf16 on Apple silicon (fp16 is unreliable in
+    some MPS kernels, bf16 is supported since macOS 14); CPU and explicit
+    ``fp32`` run without autocast.
+    """
+    if precision == "fp32" or device.type == "cpu":
+        return None
+    if precision == "fp16":
+        return torch.float16
+    if precision == "bf16":
+        return torch.bfloat16
     if device.type == "cuda":
-        return torch.autocast("cuda", dtype=torch.float16)
-    return torch.autocast("cpu", enabled=False)
+        return torch.float16
+    if device.type == "mps" and torch.backends.mps.is_available():
+        return torch.bfloat16
+    return None
+
+
+def autocast_ctx(device: torch.device, precision: str = "auto"):
+    dtype = autocast_dtype(device, precision)
+    if dtype is None:
+        return torch.autocast("cpu", enabled=False)
+    return torch.autocast(device.type, dtype=dtype)
 
 
 def load_model(backbone: str, device: torch.device | None = None):
@@ -95,6 +115,7 @@ def encode_images(
     device: torch.device | None = None,
     use_cache: bool = True,
     progress: bool = True,
+    precision: str = "auto",
 ) -> tuple[np.ndarray, dict]:
     """Encode images into L2-normalised float32 features, averaged over views.
 
@@ -103,7 +124,7 @@ def encode_images(
     """
     device = device or pick_device()
     view_tag = "-".join(sorted(views))
-    tag = config.cache_key("img", backbone, view_tag, _ids_fingerprint(image_ids))
+    tag = config.cache_key("img", backbone, view_tag, precision, _ids_fingerprint(image_ids))
     if use_cache:
         cached = _load(tag, image_ids)
         if cached is not None:
@@ -131,7 +152,7 @@ def encode_images(
             iterator = tqdm(loader, desc=f"{backbone}:{view}", leave=False)
         for pixels, _ in iterator:
             pixels = pixels.to(device, non_blocking=True)
-            with autocast_ctx(device):
+            with autocast_ctx(device, precision):
                 feats = model.encode_image(pixels)
             feats = feats.float()
             chunks.append(ds.l2_normalize(feats).cpu().numpy())
@@ -147,6 +168,7 @@ def encode_images(
         "backbone": backbone,
         "views": list(views),
         "image_size": size,
+        "precision": precision,
         "dim": int(feats.shape[1]),
     }
     if use_cache:
@@ -161,10 +183,11 @@ def encode_texts(
     batch_size: int = 256,
     device: torch.device | None = None,
     use_cache: bool = True,
+    precision: str = "auto",
 ) -> np.ndarray:
     """Encode a list of strings into L2-normalised float32 features."""
     device = device or pick_device()
-    tag = config.cache_key("txt", backbone, _ids_fingerprint(texts))
+    tag = config.cache_key("txt", backbone, precision, _ids_fingerprint(texts))
     if use_cache:
         cached = _load(tag, texts)
         if cached is not None:
@@ -174,7 +197,7 @@ def encode_texts(
     chunks = []
     for start in range(0, len(texts), batch_size):
         tokens = tokenizer(texts[start : start + batch_size]).to(device)
-        with autocast_ctx(device):
+        with autocast_ctx(device, precision):
             feats = model.encode_text(tokens)
         chunks.append(ds.l2_normalize(feats.float()).cpu().numpy())
     feats = np.concatenate(chunks, axis=0).astype(np.float32)

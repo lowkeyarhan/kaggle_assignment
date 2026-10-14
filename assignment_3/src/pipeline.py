@@ -36,6 +36,7 @@ class PipelineConfig:
     batch_size: int = 64
     num_workers: int = 8
     device: str | None = None
+    precision: str = "auto"  # "auto" = fp16 on CUDA, bf16 on Apple silicon, fp32 on CPU
     use_cache: bool = True
     image_cfg: imagemap.ImageMapConfig = field(default_factory=imagemap.ImageMapConfig)
 
@@ -78,6 +79,7 @@ def _encode_roles(
             num_workers=cfg.num_workers,
             device=device,
             use_cache=cfg.use_cache,
+            precision=cfg.precision,
         )
         trn, _ = features.encode_images(
             backbone,
@@ -88,14 +90,17 @@ def _encode_roles(
             num_workers=cfg.num_workers,
             device=device,
             use_cache=cfg.use_cache,
+            precision=cfg.precision,
         )
         proto, _ = prompts.category_prototype_matrix(
-            backbone, cats, device=device, use_cache=cfg.use_cache
+            backbone, cats, device=device, use_cache=cfg.use_cache, precision=cfg.precision
         )
         text_matrix, _ = prompts.category_text_matrix(
-            backbone, cats, device=device, use_cache=cfg.use_cache
+            backbone, cats, device=device, use_cache=cfg.use_cache, precision=cfg.precision
         )
-        qemb = features.encode_texts(backbone, query_texts, device=device, use_cache=cfg.use_cache)
+        qemb = features.encode_texts(
+            backbone, query_texts, device=device, use_cache=cfg.use_cache, precision=cfg.precision
+        )
 
         gallery_parts.append(gal)
         train_parts.append(trn)

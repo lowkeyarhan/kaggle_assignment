@@ -185,9 +185,10 @@ def train_probe(args) -> dict:
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         device=device,
+        precision=args.precision,
     )
     labels = imagemap.labels_from_frame(train, cats["category_id"].tolist())
-    proto, _ = prompts.category_prototype_matrix(args.backbone, cats, device=device)
+    proto, _ = prompts.category_prototype_matrix(args.backbone, cats, device=device, precision=args.precision)
 
     x = torch.from_numpy(feats).float()
     y = torch.from_numpy(labels).long()
@@ -440,7 +441,7 @@ def train_lora(args) -> dict:
         f"{sum(p.numel() for p in trainable) / 1e6:.2f}M trainable parameters"
     )
 
-    proto, _ = prompts.category_prototype_matrix(args.backbone, cats, device=device)
+    proto, _ = prompts.category_prototype_matrix(args.backbone, cats, device=device, precision=args.precision)
     classifier = ClipImageClassifier(model, torch.from_numpy(proto), args.logit_scale).to(device)
 
     # Frozen text embeddings of the 5 training descriptions per dish, used as

@@ -59,6 +59,8 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--batch-size", type=int, default=64)
     p.add_argument("--num-workers", type=int, default=8)
     p.add_argument("--device", default=None)
+    p.add_argument("--precision", choices=["auto", "fp16", "bf16", "fp32"], default="auto",
+                   help="autocast dtype for encoding (auto: fp16 CUDA, bf16 Apple silicon)")
     p.add_argument("--no-cache", action="store_true")
     p.add_argument("--dump-queries", default=None, help="optional csv of the query->category decisions")
     p.add_argument("--json", action="store_true", help="print metrics as json")
@@ -91,6 +93,7 @@ def build_config(args) -> pipeline.PipelineConfig:
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         device=args.device,
+        precision=args.precision,
         use_cache=not args.no_cache,
         image_cfg=image_cfg,
     )
