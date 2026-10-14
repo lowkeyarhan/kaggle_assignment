@@ -193,9 +193,10 @@ def run_pipeline(
     # --- image side: which dish is each gallery image? ---
     train_labels = imagemap.labels_from_frame(train, cats["category_id"].tolist())
 
-    # The validation gallery ships with answers, so for the final submission it
+    # The validation gallery ships with answers, so for the *test* submission it
     # is legitimate (and valuable) extra supervision: +50% labelled images.
-    if cfg.add_validation_labels and split != "train":
+    # Never applied while validating, or the diagnostics would be self-fulfilling.
+    if cfg.add_validation_labels and split == "test":
         train_emb, train_labels = _with_validation_labels(
             cfg, root, cats, train_emb, train_labels
         )
