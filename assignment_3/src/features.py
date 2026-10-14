@@ -151,50 +151,6 @@ def _load(tag: str, ids: list[str]):
     return {k: blob[k] for k in blob.files if k != "ids"}, cached_ids
 
 
-def _encode_paths(
-    model,
-    view_transforms: dict,
-    paths: list[str],
-    device: torch.device,
-    batch_size: int,
-    num_workers: int,
-    dtype,
-    progress: bool,
-    tag: str,
-) -> np.ndarray:
-    """Encode ``paths`` with every view and return the averaged, normalised matrix."""
-    per_view = []
-    for view, tf in view_transforms.items():
-        loader = DataLoader(
-            ds.ImagePathDataset(paths, tf),
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-            pin_memory=device.type == "cuda",
-        )
-        iterator = loader
-        if progress:
-            from tqdm import tqdm
-
-            iterator = tqdm(loader, desc=f"{tag}:{view}", leave=False)
-        chunks = []
-        for pixels, _ in iterator:
-            pixels = pixels.to(device, non_blocking=True)
-            with torch.autocast(device.type, dtype=dtype) if dtype else _nullcontext():
-                feats = model.encode_image(pixels)
-            chunks.append(ds.l2_normalize(feats.float()).cpu().numpy())
-        per_view.append(np.concatenate(chunks, axis=0))
-    return per_view
-
-
-class _nullcontext:
-    def __enter__(self):
-        return None
-
-    def __exit__(self, *exc):
-        return False
-
-
 @torch.no_grad()
 def encode_images(
     backbone: str,
@@ -227,17 +183,41 @@ def encode_images(
     mean, std = ds.extract_norm(preprocess)
     view_transforms = ds.build_eval_views(size, mean, std, views)
 
-    per_view = _encode_paths(
-        model,
-        view_transforms,
-        paths,
-        device,
-        batch_size,
-        num_workers,
-        autocast_dtype(device, precision),
-        progress,
-        f"{backbone}",
-    )
+    per_view = []
+    for view, tf in view_transforms.items():
+        loader = DataLoader(
+            ds.ImagePathDataset(paths, tf),
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=device.type == "cuda",
+        )
+        chunks = []
+        iterator = loader
+        if progress:
+            from tqdm import tqdm
+
+            iterator = tqdm(loader, desc=f"{backbone}:{view}", leave=False)
+        import time as _time
+
+        t_start = _time.time()
+        n_batches = 0
+        for pixels, _ in iterator:
+            pixels = pixels.to(device, non_blocking=True)
+            with autocast_ctx(device, precision):
+                feats = model.encode_image(pixels)
+            feats = feats.float()
+            chunks.append(ds.l2_normalize(feats).cpu().numpy())
+            n_batches += 1
+            if n_batches == 1 or n_batches % 20 == 0:
+                done = n_batches * pixels.shape[0]
+                rate = done / max(_time.time() - t_start, 1e-6)
+                print(
+                    f"[features] {backbone}:{view} batch {n_batches} "
+                    f"({done}/{len(paths)} imgs, {rate:.1f} img/s)",
+                    flush=True,
+                )
+        per_view.append(np.concatenate(chunks, axis=0))
 
     stacked = np.stack(per_view, axis=0)  # [V, N, D]
     feats = stacked.mean(axis=0)
