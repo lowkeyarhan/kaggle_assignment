@@ -41,11 +41,11 @@ rest globally — including cases where one dish name is a substring of another 
   noisy training labels;
 - **linear probe** (or the fold ensemble from `src/train.py`) on frozen features — adapts the space
   to these 101 dishes;
-- **k-NN vote** from the 2000 training images — local, robust to label noise;
-- **label propagation** over the gallery's own k-NN graph — the gallery clusters by dish, so
-  isolated mistakes average out;
 - **Sinkhorn / optimal transport** onto the 101 categories with uniform marginals, forcing each
-  category to attract its ~19.8 images. This is the single biggest structural win.
+  category to attract its ~19.8 images. This is the single biggest structural win (+0.064).
+
+Two further views (k-NN vote from the training images, gallery label propagation) are implemented and
+reachable by flag, but validation says they *hurt* on this data, so they default to off.
 
 **Ranking** (`src/retrieval.py`) — for each query, the 20 images of its predicted category, ordered
 by image score. A direct query-image similarity term is available (`--blend-query-sim`) to improve
@@ -58,6 +58,45 @@ src/           Pipeline (config, dataset, features, textmap, imagemap, balance, 
 src/train.py   Optional training: prompt-initialised probe (default) or LoRA fine-tune
 scripts/       Submission checker and a random-baseline format smoke test
 ```
+
+## Results (validation split, 1,010 images / 202 queries)
+
+| Backbone | image top-1 | R-precision | mAP@20 | P@5 |
+| --- | --- | --- | --- | --- |
+| `clip-b32-laion` (smoke test) | 0.803 | 0.806 | 0.840 | 0.945 |
+| `clip-b32-laion` + 5-fold probe heads | 0.803 | 0.806 | 0.844 | 0.947 |
+| `siglip2-b16-384` (tuned fusion) | 0.932 | **0.938** | 0.966 | 0.992 |
+| `siglip2-b16-384` + `clip-b32-laion` (equal weights) | 0.912 | 0.911 | 0.946 | 0.988 |
+
+Query -> category accuracy is **1.000** in every run (202/202), so the entire
+score is the image side. Measured relationship on this data:
+
+```
+R-precision == image->category top-1  (exactly, for every configuration tried)
+```
+
+The backbone swap alone moved the score by **+0.13**; every transductive trick
+combined was worth less than a tenth of that. Ensembling a much weaker model in
+*hurts* (0.938 -> 0.911): weight the members, or do not ensemble.
+
+### What moved the needle, and what did not
+
+| Change | Effect on R-precision |
+| --- | --- |
+| Sinkhorn balancing of the gallery (structure prior) | **+0.064** (0.742 -> 0.806) |
+| Query -> category via string matching | already 1.000, no gain left |
+| k-NN vote from training images | **-0.02** (hurts) |
+| Gallery label propagation | **-0.02** (hurts: smears confusable clusters) |
+| Prototype rectification with train means | -0.03 (hurts) |
+| Label propagation seeded from train labels | -0.10 (much worse) |
+| EM self-training on the gallery | +0.00 (converges immediately) |
+
+Conclusion: with a weak backbone every transductive trick saturates at ~0.81.
+The remaining ~0.17 is **image recognition quality**, so the next moves are, in
+order: a stronger backbone, fine-tuning on the labelled images (train + the
+labelled validation gallery = 3,010 images), and an ensemble of two backbones
+from independent pretraining corpora. `kaggle_run.md` has the exact commands and
+the Kaggle notebook automates them.
 
 ## Quick Start
 
