@@ -58,6 +58,35 @@ def autocast_ctx(device: torch.device, precision: str = "auto"):
     return torch.autocast(device.type, dtype=dtype)
 
 
+def _mps_expand_hotfix(model: torch.nn.Module) -> int:
+    """Work around an MPS backend bug with stride-0 expanded tensors.
+
+    timm's attention-pool head (`AttentionPoolLatent`) feeds
+    ``self.latent.expand(B, -1, -1)`` straight into a Linear layer. On MPS that
+    stride-0 view aborts the process for any batch > 1
+    (``[MPSNDArray ...] buffer is not large enough``) while batch 1 silently
+    works. Cloning the expansion to a contiguous tensor in a forward pre-hook
+    keeps everything on the GPU and costs one cheap copy.
+    """
+    patched = 0
+    try:
+        from timm.layers import AttentionPoolLatent
+    except ImportError:
+        return 0
+    for module in model.modules():
+        if isinstance(module, AttentionPoolLatent) and not getattr(module, "_mps_hotfixed", False):
+            def _declone(_mod, args, _kwargs=None):
+                data = args[0]
+                if data.stride(0) == 0:
+                    data = data.contiguous()
+                return ((data,) + args[1:], _kwargs or {})
+
+            module.q.register_forward_pre_hook(_declone, with_kwargs=True)
+            module._mps_hotfixed = True
+            patched += 1
+    return patched
+
+
 def load_model(backbone: str, device: torch.device | None = None, precision: str = "auto"):
     """Load ``(model, preprocess, tokenizer)`` for a backbone registry key.
 
@@ -78,6 +107,10 @@ def load_model(backbone: str, device: torch.device | None = None, precision: str
         if dtype is not None:
             model = model.to(dtype=dtype)
         model = model.eval().to(device)
+        if device.type == "mps":
+            n = _mps_expand_hotfix(model)
+            if n:
+                print(f"[features] applied MPS expand hotfix to {n} attention-pool head(s)")
         tokenizer = open_clip.get_tokenizer(arch)
         _MODEL_CACHE[key] = (model, preprocess, tokenizer)
     return _MODEL_CACHE[key]
