@@ -1,0 +1,25 @@
+{
+  "mode": "probe",
+  "backbone": "siglip2-b16-384",
+  "views": [
+    "center",
+    "full"
+  ],
+  "fold_val_acc": [
+    0.9225,
+    0.915,
+    0.93,
+    0.9125,
+    0.925
+  ],
+  "mean_val_acc": 0.921,
+  "heads": [
+    "models/probe/probe_fold0.npz",
+    "models/probe/probe_fold1.npz",
+    "models/probe/probe_fold2.npz",
+    "models/probe/probe_fold3.npz",
+    "models/probe/probe_fold4.npz"
+  ],
+  "zero_shot_head": "models/probe/zero_shot.npz",
+  "seconds": 312.3
+}

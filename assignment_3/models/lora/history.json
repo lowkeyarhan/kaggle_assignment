@@ -1,0 +1,19 @@
+{
+  "mode": "lora",
+  "backbone": "clip-b32-laion",
+  "best_val_image_top1": 0.7712871287128713,
+  "best_epoch": 1,
+  "checkpoint": "models/lora/best.pt",
+  "history": [
+    {
+      "epoch": 0,
+      "loss": 2.7914237629982734,
+      "val_image_top1": 0.7118811881188118
+    },
+    {
+      "epoch": 1,
+      "loss": 2.1215574414499345,
+      "val_image_top1": 0.7712871287128713
+    }
+  ]
+}
