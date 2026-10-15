@@ -1,0 +1,70 @@
+{
+  "config": {
+    "backbones": [
+      "siglip2-so400m-384"
+    ],
+    "views": [
+      "center",
+      "full"
+    ],
+    "weight_zero_shot": 0.3,
+    "weight_linear": 0.2,
+    "weight_knn": 0.0,
+    "prop_alpha": 0.3,
+    "sinkhorn_temp": 0.35,
+    "add_validation_labels": true
+  },
+  "validation_metrics": {
+    "r_precision": 0.9653465346534668,
+    "mAP@20": 0.9854505765702621,
+    "P@5": 0.9940594059405943,
+    "Hit@1": 1.0,
+    "Hit@5": 1.0,
+    "MRR@20": 1.0,
+    "n_queries": 202.0
+  },
+  "validation_diagnostics": {
+    "n_queries": 202,
+    "n_images": 1010,
+    "n_categories": 101,
+    "backbones": [
+      "siglip2-so400m-384"
+    ],
+    "views": [
+      "center",
+      "full"
+    ],
+    "exact_text_match": 1.0,
+    "min_margin": 5.799380294848508,
+    "ambiguous_queries": 0,
+    "query_category_accuracy": 1.0,
+    "image_category_accuracy": {
+      "zero_shot": {
+        "top1": 0.9425742574257425,
+        "top5": 0.994059405940594,
+        "n": 1010
+      },
+      "linear": {
+        "top1": 0.9346534653465347,
+        "top5": 0.9910891089108911,
+        "n": 1010
+      },
+      "fused_raw": {
+        "top1": 0.9495049504950495,
+        "top5": 0.995049504950495,
+        "n": 1010
+      },
+      "propagated": {
+        "top1": 0.9465346534653465,
+        "top5": 0.994059405940594,
+        "n": 1010
+      },
+      "scores": {
+        "top1": 0.9633663366336633,
+        "top5": 0.995049504950495,
+        "n": 1010
+      }
+    },
+    "image_top1": 0.9633663366336633
+  }
+}
